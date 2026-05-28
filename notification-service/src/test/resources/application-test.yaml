@@ -1,0 +1,47 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb;MODE=PostgreSQL;NON_KEYWORDS=VALUE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        default_schema:
+  flyway:
+    enabled: false
+  kafka:
+    # Overridden at runtime by @EmbeddedKafka via spring.embedded.kafka.brokers
+    bootstrap-servers: ${spring.embedded.kafka.brokers}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    consumer:
+      key-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      properties:
+        spring.deserializer.key.delegate.class: org.apache.kafka.common.serialization.StringDeserializer
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JsonDeserializer
+        spring.json.trusted.packages: "*"
+    listener:
+      ack-mode: RECORD
+
+management:
+  health:
+    mail:
+      # The DltRoutingTest mocks JavaMailSender, leaving the map empty.
+      # Actuator's MailHealthContributorAutoConfiguration fails on an empty
+      # bean map, so disable the mail health indicator in tests.
+      enabled: false
+
+app:
+  kafka:
+    error-handler:
+      # Short intervals so the test completes quickly
+      initial-interval-ms: 100
+      max-interval-ms: 500
+      max-retries: 3

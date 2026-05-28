@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Welcome</title>
+</head>
+<body>
+    <h1>Welcome to the Waitlist, <span th:text="${name}">User</span>!</h1>
+    <p>Thank you for signing up. We'll notify you when your status changes.</p>
+    <p>Your referral code: <strong th:text="${referralCode}">CODE</strong></p>
+    <p>Share it with friends to earn rewards!</p>
+</body>
+</html>

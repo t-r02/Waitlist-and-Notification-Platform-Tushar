@@ -1,0 +1,9 @@
+// Plain Java library — no Spring Boot fat-jar needed
+bootJar { enabled = false }
+jar     { enabled = true  }
+
+dependencies {
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'com.fasterxml.jackson.core:jackson-databind'
+    testImplementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
+}

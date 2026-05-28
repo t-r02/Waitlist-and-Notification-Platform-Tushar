@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Status Update</title>
+</head>
+<body>
+    <h1>Your Status Has Changed</h1>
+    <p>Your waitlist status is now: <strong th:text="${status}">STATUS</strong></p>
+    <p th:if="${status == 'INVITED'}">Congratulations! You've been invited. Check your email for next steps.</p>
+    <p th:if="${status == 'APPROVED'}">You've been approved! We'll send an invitation soon.</p>
+</body>
+</html>

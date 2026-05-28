@@ -1,0 +1,6 @@
+rootProject.name = 'waitlist-platform'
+
+include 'events'
+include 'ingestion-service'
+include 'admin-service'
+include 'notification-service'

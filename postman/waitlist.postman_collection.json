@@ -1,0 +1,1435 @@
+{
+  "info": {
+    "name": "Waitlist Platform",
+    "_postman_id": "waitlist-platform-v2",
+    "description": "Full E2E test collection. Run after: docker compose up -d. Requires services on :8081 :8082 :8025.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "runEmail",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "runRefEmail",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "upperEmail",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "bulkEmail1",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "bulkEmail2",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "bulkEmail3",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refCode",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "entryId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refEntryId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "bulkId1",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "bulkId2",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "bulkId3",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "00 Setup",
+      "item": [
+        {
+          "name": "Health check (initialises run variables)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseIngestion}}/actuator/health",
+              "host": [
+                "{{baseIngestion}}/actuator/health"
+              ]
+            },
+            "header": []
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ts = Date.now();",
+                  "pm.environment.set('runEmail',    'e2e.' + ts + '@postman.test');",
+                  "pm.environment.set('runRefEmail', 'ref.' + ts + '@postman.test');",
+                  "pm.environment.set('bulkEmail1',  'bulk.' + ts + '.1@fixture.test');",
+                  "pm.environment.set('bulkEmail2',  'bulk.' + ts + '.2@fixture.test');",
+                  "pm.environment.set('bulkEmail3',  'bulk.' + ts + '.3@fixture.test');",
+                  "['token','refCode','entryId','refEntryId','bulkId1','bulkId2','bulkId3'].forEach(k => pm.environment.set(k, ''));",
+                  "console.log('runEmail:', pm.environment.get('runEmail'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('ingestion-service UP', () => pm.response.to.have.status(200));",
+                  "pm.test('status UP', () => pm.expect(pm.response.json().status).to.eql('UP'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Fixture signup bulk-1 (for bulk tests)",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseIngestion}}/api/public/signup",
+              "host": [
+                "{{baseIngestion}}/api/public/signup"
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Forwarded-For",
+                "value": "10.0.2.1"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\":\"{{bulkEmail1}}\",\"name\":\"Bulk Fixture 1\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('bulk-1 registered', () => pm.expect([200,200]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Fixture signup bulk-2 (for bulk tests)",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseIngestion}}/api/public/signup",
+              "host": [
+                "{{baseIngestion}}/api/public/signup"
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Forwarded-For",
+                "value": "10.0.2.2"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\":\"{{bulkEmail2}}\",\"name\":\"Bulk Fixture 2\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('bulk-2 registered', () => pm.expect([200,200]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Fixture signup bulk-3 (for bulk tests)",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseIngestion}}/api/public/signup",
+              "host": [
+                "{{baseIngestion}}/api/public/signup"
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Forwarded-For",
+                "value": "10.0.2.3"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\":\"{{bulkEmail3}}\",\"name\":\"Bulk Fixture 3\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('bulk-3 registered', () => pm.expect([200,200]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Public \u2014 happy path",
+      "item": [
+        {
+          "name": "Signup (saves refCode)",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseIngestion}}/api/public/signup",
+              "host": [
+                "{{baseIngestion}}/api/public/signup"
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\":\"{{runEmail}}\",\"name\":\"E2E Alice\",\"company\":\"Postman Co\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('duplicate false', () => pm.expect(pm.response.json().duplicate).to.be.false);",
+                  "pm.test('referralCode 8 chars \u2014 saves refCode', () => {",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.referralCode).to.be.a('string').with.lengthOf(8);",
+                  "  pm.environment.set('refCode', b.referralCode);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Signup via referral (EMAIL_B)",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseIngestion}}/api/public/signup",
+              "host": [
+                "{{baseIngestion}}/api/public/signup"
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\":\"{{runRefEmail}}\",\"name\":\"E2E Bob\",\"referralCode\":\"{{refCode}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('referral signup not duplicate', () => pm.expect(pm.response.json().duplicate).to.be.false);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Leaderboard window=all",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseIngestion}}/api/public/leaderboard?window=all",
+              "host": [
+                "{{baseIngestion}}/api/public/leaderboard?window=all"
+              ]
+            },
+            "header": []
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('array response', () => pm.expect(pm.response.json()).to.be.an('array'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Leaderboard window=week",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseIngestion}}/api/public/leaderboard?window=week",
+              "host": [
+                "{{baseIngestion}}/api/public/leaderboard?window=week"
+              ]
+            },
+            "header": []
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('array response', () => pm.expect(pm.response.json()).to.be.an('array'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Public \u2014 negative",
+      "item": [
+        {
+          "name": "Duplicate signup \u2192 duplicate=true",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseIngestion}}/api/public/signup",
+              "host": [
+                "{{baseIngestion}}/api/public/signup"
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\":\"{{runEmail}}\",\"name\":\"Dup\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('duplicate true', () => pm.expect(pm.response.json().duplicate).to.be.true);",
+                  "pm.test('same referralCode', () => pm.expect(pm.response.json().referralCode).to.eql(pm.environment.get('refCode')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Uppercase dedup \u2192 duplicate=true",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseIngestion}}/api/public/signup",
+              "host": [
+                "{{baseIngestion}}/api/public/signup"
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\":\"{{upperEmail}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set('upperEmail', pm.environment.get('runEmail').toUpperCase());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('case-insensitive dedup', () => pm.expect(pm.response.json().duplicate).to.be.true);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Invalid email \u2192 400",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseIngestion}}/api/public/signup",
+              "host": [
+                "{{baseIngestion}}/api/public/signup"
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\":\"not-an-email\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('errors field present', () => pm.expect(pm.response.json()).to.have.property('errors'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Missing email \u2192 400",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseIngestion}}/api/public/signup",
+              "host": [
+                "{{baseIngestion}}/api/public/signup"
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\":\"NoEmail\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('errors field present', () => pm.expect(pm.response.json()).to.have.property('errors'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Malformed JSON \u2192 400 (bug: 500)",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseIngestion}}/api/public/signup",
+              "host": [
+                "{{baseIngestion}}/api/public/signup"
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "NOT JSON AT ALL",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// BUG: missing HttpMessageNotReadableException handler \u2014 returns 500 instead of 400",
+                  "pm.test('Malformed JSON rejected (bug: 500, should be 400)', () => pm.expect([400,500]).to.include(pm.response.code));",
+                  "if (pm.response.code === 500) console.warn('BUG #1: malformed JSON returns 500');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Name > 120 chars \u2192 400",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseIngestion}}/api/public/signup",
+              "host": [
+                "{{baseIngestion}}/api/public/signup"
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\":\"long@test.com\",\"name\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Bad referralCode pattern \u2192 400",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseIngestion}}/api/public/signup",
+              "host": [
+                "{{baseIngestion}}/api/public/signup"
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Forwarded-For",
+                "value": "10.0.1.1"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\":\"bad@test.com\",\"referralCode\":\"abc\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Honeypot \u2192 200 + code 00000000",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseIngestion}}/api/public/signup",
+              "host": [
+                "{{baseIngestion}}/api/public/signup"
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Forwarded-For",
+                "value": "10.0.1.2"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\":\"bot@test.com\",\"name\":\"Bot\",\"website\":\"http://spam.com\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('code 00000000', () => pm.expect(pm.response.json().referralCode).to.eql('00000000'));",
+                  "pm.test('duplicate true', () => pm.expect(pm.response.json().duplicate).to.be.true);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Leaderboard bogus window \u2192 400",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseIngestion}}/api/public/leaderboard?window=bogus",
+              "host": [
+                "{{baseIngestion}}/api/public/leaderboard?window=bogus"
+              ]
+            },
+            "header": [
+              {
+                "key": "X-Forwarded-For",
+                "value": "10.0.1.3"
+              }
+            ]
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('error message present', () => pm.expect(pm.response.json()).to.have.property('message'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Admin \u2014 auth",
+      "item": [
+        {
+          "name": "Login success (saves token)",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseAdmin}}/api/admin/auth/login",
+              "host": [
+                "{{baseAdmin}}/api/admin/auth/login"
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\":\"admin\",\"password\":\"admin123\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('token present \u2014 saves token', () => {",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.token).to.be.a('string').with.lengthOf.above(20);",
+                  "  pm.environment.set('token', b.token);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login wrong password \u2192 401",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseAdmin}}/api/admin/auth/login",
+              "host": [
+                "{{baseAdmin}}/api/admin/auth/login"
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\":\"admin\",\"password\":\"wrongpass\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 401 - wrong password', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login unknown user \u2192 401",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseAdmin}}/api/admin/auth/login",
+              "host": [
+                "{{baseAdmin}}/api/admin/auth/login"
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\":\"nobody\",\"password\":\"x\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 401 - unknown user', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Admin \u2014 entries",
+      "item": [
+        {
+          "name": "List no token \u2192 401",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseAdmin}}/api/admin/entries",
+              "host": [
+                "{{baseAdmin}}/api/admin/entries"
+              ]
+            },
+            "header": []
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 401 - no token', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List with token (captures entryId)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseAdmin}}/api/admin/entries",
+              "host": [
+                "{{baseAdmin}}/api/admin/entries"
+              ]
+            },
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('array', () => pm.expect(pm.response.json()).to.be.an('array'));",
+                  "const entries = pm.response.json();",
+                  "const runEmail = pm.environment.get('runEmail');",
+                  "const entry = entries.find(e => e.email === runEmail);",
+                  "const refEntry = entries.find(e => e.email === pm.environment.get('runRefEmail'));",
+                  "pm.test('runEmail projected to admin', () => pm.expect(entry).to.not.be.undefined);",
+                  "if (entry)    pm.environment.set('entryId',    String(entry.id));",
+                  "if (refEntry) pm.environment.set('refEntryId', String(refEntry.id));",
+                  "console.log('entryId:', pm.environment.get('entryId'), ' refEntryId:', pm.environment.get('refEntryId'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Filter PENDING \u2192 200",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseAdmin}}/api/admin/entries?status=PENDING",
+              "host": [
+                "{{baseAdmin}}/api/admin/entries?status=PENDING"
+              ]
+            },
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('all PENDING', () => pm.response.json().forEach(e => pm.expect(e.status).to.eql('PENDING')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Filter BOGUS status \u2192 400",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseAdmin}}/api/admin/entries?status=BOGUS",
+              "host": [
+                "{{baseAdmin}}/api/admin/entries?status=BOGUS"
+              ]
+            },
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('mentions BOGUS', () => pm.expect(pm.response.json().message).to.include('BOGUS'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Patch PENDING\u2192APPROVED \u2192 200",
+          "request": {
+            "method": "PATCH",
+            "url": {
+              "raw": "{{baseAdmin}}/api/admin/entries/{{entryId}}?status=APPROVED",
+              "host": [
+                "{{baseAdmin}}/api/admin/entries/{{entryId}}?status=APPROVED"
+              ]
+            },
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Patch APPROVED\u2192PENDING illegal \u2192 409",
+          "request": {
+            "method": "PATCH",
+            "url": {
+              "raw": "{{baseAdmin}}/api/admin/entries/{{entryId}}?status=PENDING",
+              "host": [
+                "{{baseAdmin}}/api/admin/entries/{{entryId}}?status=PENDING"
+              ]
+            },
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 409', () => pm.response.to.have.status(409));",
+                  "pm.test('transition error', () => pm.expect(pm.response.json().message).to.include('APPROVED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Patch APPROVED\u2192INVITED \u2192 200",
+          "request": {
+            "method": "PATCH",
+            "url": {
+              "raw": "{{baseAdmin}}/api/admin/entries/{{entryId}}?status=INVITED",
+              "host": [
+                "{{baseAdmin}}/api/admin/entries/{{entryId}}?status=INVITED"
+              ]
+            },
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Patch INVITED\u2192REJECTED terminal \u2192 409",
+          "request": {
+            "method": "PATCH",
+            "url": {
+              "raw": "{{baseAdmin}}/api/admin/entries/{{entryId}}?status=REJECTED",
+              "host": [
+                "{{baseAdmin}}/api/admin/entries/{{entryId}}?status=REJECTED"
+              ]
+            },
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 409', () => pm.response.to.have.status(409));",
+                  "pm.test('INVITED terminal', () => pm.expect(pm.response.json().message).to.include('INVITED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Patch nonexistent 999999 \u2192 404",
+          "request": {
+            "method": "PATCH",
+            "url": {
+              "raw": "{{baseAdmin}}/api/admin/entries/999999?status=APPROVED",
+              "host": [
+                "{{baseAdmin}}/api/admin/entries/999999?status=APPROVED"
+              ]
+            },
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 404', () => pm.response.to.have.status(404));",
+                  "pm.test('mentions 999999', () => pm.expect(pm.response.json().message).to.include('999999'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Admin \u2014 bulk",
+      "item": [
+        {
+          "name": "Get PENDING entries (stores bulkIds)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseAdmin}}/api/admin/entries?status=PENDING",
+              "host": [
+                "{{baseAdmin}}/api/admin/entries?status=PENDING"
+              ]
+            },
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const entries = pm.response.json();",
+                  "// Locate fixture bulk entries by email (set in SETUP_PRE); guaranteed PENDING on every run.",
+                  "const b1 = entries.find(x => x.email === pm.environment.get('bulkEmail1'));",
+                  "const b2 = entries.find(x => x.email === pm.environment.get('bulkEmail2'));",
+                  "const b3 = entries.find(x => x.email === pm.environment.get('bulkEmail3'));",
+                  "pm.test('has fixture PENDING entries', () => { pm.expect(b1).to.not.be.undefined; pm.expect(b2).to.not.be.undefined; pm.expect(b3).to.not.be.undefined; });",
+                  "if(b1) pm.environment.set('bulkId1', String(b1.id));",
+                  "if(b2) pm.environment.set('bulkId2', String(b2.id));",
+                  "if(b3) pm.environment.set('bulkId3', String(b3.id));",
+                  "console.log('bulkIds:', pm.environment.get('bulkId1'), pm.environment.get('bulkId2'), pm.environment.get('bulkId3'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Bulk all-success [bulkId1,bulkId2] \u2192 200",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseAdmin}}/api/admin/entries/bulk",
+              "host": [
+                "{{baseAdmin}}/api/admin/entries/bulk"
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"ids\":[{{bulkId1}},{{bulkId2}}],\"newStatus\":\"APPROVED\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('successCount 2', () => pm.expect(pm.response.json().successCount).to.eql(2));",
+                  "pm.test('failures empty', () => pm.expect(pm.response.json().failures).to.eql([]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Bulk partial [bulkId3,999999] \u2192 207",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseAdmin}}/api/admin/entries/bulk",
+              "host": [
+                "{{baseAdmin}}/api/admin/entries/bulk"
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"ids\":[{{bulkId3}},999999],\"newStatus\":\"APPROVED\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 207', () => pm.response.to.have.status(207));",
+                  "pm.test('successCount 1', () => pm.expect(pm.response.json().successCount).to.eql(1));",
+                  "pm.test('failures non-empty', () => pm.expect(pm.response.json().failures.length).to.be.above(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Bulk empty ids \u2192 400",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseAdmin}}/api/admin/entries/bulk",
+              "host": [
+                "{{baseAdmin}}/api/admin/entries/bulk"
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"ids\":[],\"newStatus\":\"APPROVED\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('errors', () => pm.expect(pm.response.json()).to.have.property('errors'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Bulk null status \u2192 400",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseAdmin}}/api/admin/entries/bulk",
+              "host": [
+                "{{baseAdmin}}/api/admin/entries/bulk"
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"ids\":[1],\"newStatus\":null}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('errors', () => pm.expect(pm.response.json()).to.have.property('errors'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Referral + email",
+      "item": [
+        {
+          "name": "Approve referee (EMAIL_B)",
+          "request": {
+            "method": "PATCH",
+            "url": {
+              "raw": "{{baseAdmin}}/api/admin/entries/{{refEntryId}}?status=APPROVED",
+              "host": [
+                "{{baseAdmin}}/api/admin/entries/{{refEntryId}}?status=APPROVED"
+              ]
+            },
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Mailpit \u2014 >= 2 emails for runEmail",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{mailpit}}/api/v1/messages",
+              "host": [
+                "{{mailpit}}/api/v1/messages"
+              ]
+            },
+            "header": []
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const msgs = (pm.response.json().messages || []);",
+                  "const runEmail = pm.environment.get('runEmail');",
+                  "const matching = msgs.filter(m => (m.To||[]).some(t=>(t.Address||'').toLowerCase()===runEmail.toLowerCase()));",
+                  "pm.test('at least 2 emails for runEmail', () => pm.expect(matching.length).to.be.at.least(2));",
+                  "const subjects = matching.map(m => m.Subject);",
+                  "pm.test('Welcome email sent', () => pm.expect(subjects.some(s=>s&&(s.includes('Welcome')||s.includes('Waitlist')))).to.be.true);",
+                  "pm.test('Status update sent', () => pm.expect(subjects.some(s=>s&&s.includes('Status'))).to.be.true);",
+                  "console.log('Emails:', subjects);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+# ── Gradle build output ──────────────────────────────────────────────────────
+**/build/
+**/.gradle/
+gradle/wrapper/gradle-wrapper.jar
+
+# ── IDE / OS artefacts ───────────────────────────────────────────────────────
+**/*.iml
+**/.idea/
+**/.DS_Store
+**/Thumbs.db
+
+# ── Logs & crash dumps ───────────────────────────────────────────────────────
+*.log
+hs_err_pid*.log
+replay_pid*.log
+
+# ── Git ──────────────────────────────────────────────────────────────────────
+.git/
+.gitignore
+
+# ── Docs / non-build files that don't affect the JAR ────────────────────────
+*.md
+postman-collection.json
+start-all.bat
