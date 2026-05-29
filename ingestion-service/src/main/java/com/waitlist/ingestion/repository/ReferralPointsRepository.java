@@ -17,6 +17,6 @@ public interface ReferralPointsRepository extends JpaRepository<ReferralPoints, 
     List<ReferralPoints> findAllByEmailIn(Collection<String> emails);
 
     /** DB fallback when Redis is cold or unavailable (all-time window only). */
-    @Query("SELECT r FROM ReferralPoints r WHERE r.flagged = false ORDER BY r.points DESC")
+    @Query("SELECT r FROM ReferralPoints r WHERE r.flagged = false AND r.referrerStatus <> 'BLACKLISTED' AND r.points > 0 ORDER BY r.points DESC")
     List<ReferralPoints> findLeaderboard(Pageable pageable);
 }

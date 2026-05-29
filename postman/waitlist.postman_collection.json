@@ -70,6 +70,16 @@
       "key": "bulkId3",
       "value": "",
       "type": "string"
+    },
+    {
+      "key": "verification_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "verification_token_b",
+      "value": "",
+      "type": "string"
     }
   ],
   "item": [
@@ -281,16 +291,63 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('Status 200', () => pm.response.to.have.status(200));",
-                  "pm.test('duplicate false', () => pm.expect(pm.response.json().duplicate).to.be.false);",
-                  "pm.test('referralCode 8 chars \u2014 saves refCode', () => {",
-                  "  const b = pm.response.json();",
-                  "  pm.expect(b.referralCode).to.be.a('string').with.lengthOf(8);",
-                  "  pm.environment.set('refCode', b.referralCode);",
-                  "});"
+                  "pm.test('not a duplicate', () => pm.expect(pm.response.json().duplicate).to.be.false);",
+                  "pm.test('unverified on signup', () => pm.expect(pm.response.json().verified).to.be.false);",
+                  "pm.test('referralCode hidden until email verified', () => pm.expect(pm.response.json().referralCode).to.be.null);"
                 ]
               }
             }
           ]
+        },
+        {
+          "name": "Fetch verification token (EMAIL_A)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{mailpit}}/api/v1/messages?limit=10", "host": ["{{mailpit}}/api/v1/messages"] },
+            "header": []
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "pm.test('mailpit 200', () => pm.response.to.have.status(200));",
+                "const email = pm.environment.get('runEmail');",
+                "const msgs  = pm.response.json().messages || [];",
+                "const msg   = msgs.find(m => (m.To||[]).some(t=>t.Address===email) && /verify/i.test(m.Subject));",
+                "pm.test('verification email received', () => pm.expect(msg, 'no verify email found').to.exist);",
+                "if (!msg) return;",
+                "const m = (msg.Snippet||'').match(/token=([a-f0-9]{64})/);",
+                "pm.test('token extracted', () => pm.expect(m).to.not.be.null);",
+                "if (m) pm.environment.set('verification_token', m[1]);"
+              ]
+            }
+          }]
+        },
+        {
+          "name": "Verify EMAIL_A — saves refCode",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseIngestion}}/api/public/verify?token={{verification_token}}",
+              "host": ["{{baseIngestion}}/api/public/verify"],
+              "query": [{ "key": "token", "value": "{{verification_token}}" }]
+            },
+            "header": []
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                "const b = pm.response.json();",
+                "pm.test('referralCode returned after verify', () => pm.expect(b.referralCode).to.be.a('string').and.have.lengthOf(8));",
+                "pm.environment.set('refCode', b.referralCode);",
+                "console.log('Alice verified — refCode:', b.referralCode);"
+              ]
+            }
+          }]
         },
         {
           "name": "Signup via referral (EMAIL_B)",
@@ -325,11 +382,57 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('Status 200', () => pm.response.to.have.status(200));",
-                  "pm.test('referral signup not duplicate', () => pm.expect(pm.response.json().duplicate).to.be.false);"
+                  "pm.test('referral signup not duplicate', () => pm.expect(pm.response.json().duplicate).to.be.false);",
+                  "pm.test('unverified after referral signup', () => pm.expect(pm.response.json().verified).to.be.false);"
                 ]
               }
             }
           ]
+        },
+        {
+          "name": "Fetch verification token (EMAIL_B)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{mailpit}}/api/v1/messages?limit=20", "host": ["{{mailpit}}/api/v1/messages"] },
+            "header": []
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const email = pm.environment.get('runRefEmail');",
+                "const msgs  = pm.response.json().messages || [];",
+                "const msg   = msgs.find(m => (m.To||[]).some(t=>t.Address===email) && /verify/i.test(m.Subject));",
+                "pm.test('verification email for EMAIL_B received', () => pm.expect(msg).to.exist);",
+                "if (!msg) return;",
+                "const m = (msg.Snippet||'').match(/token=([a-f0-9]{64})/);",
+                "if (m) pm.environment.set('verification_token_b', m[1]);"
+              ]
+            }
+          }]
+        },
+        {
+          "name": "Verify EMAIL_B (admin will see Bob after this)",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseIngestion}}/api/public/verify?token={{verification_token_b}}",
+              "host": ["{{baseIngestion}}/api/public/verify"],
+              "query": [{ "key": "token", "value": "{{verification_token_b}}" }]
+            },
+            "header": []
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                "console.log('Bob verified — referral row is active');"
+              ]
+            }
+          }]
         },
         {
           "name": "Leaderboard window=all",
@@ -404,7 +507,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\"email\":\"{{runEmail}}\",\"name\":\"Dup\"}",
+              "raw": "{\"email\":\"{{runEmail}}\",\"name\":\"E2E Alice\",\"company\":\"Postman Co\"}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -420,11 +523,38 @@
                 "exec": [
                   "pm.test('Status 200', () => pm.response.to.have.status(200));",
                   "pm.test('duplicate true', () => pm.expect(pm.response.json().duplicate).to.be.true);",
-                  "pm.test('same referralCode', () => pm.expect(pm.response.json().referralCode).to.eql(pm.environment.get('refCode')));"
+                  "pm.test('verified true (name matched)', () => pm.expect(pm.response.json().verified).to.be.true);",
+                  "pm.test('same referralCode returned (name matched)', () => pm.expect(pm.response.json().referralCode).to.eql(pm.environment.get('refCode')));"
                 ]
               }
             }
           ]
+        },
+        {
+          "name": "Duplicate with wrong name \u2192 400",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseIngestion}}/api/public/signup",
+              "host": ["{{baseIngestion}}/api/public/signup"]
+            },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\":\"{{runEmail}}\",\"name\":\"Wrong Name Attacker\"}",
+              "options": { "raw": { "language": "json" } }
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "pm.test('Status 400 \u2014 wrong name is an error, not a success', () => pm.response.to.have.status(400));",
+                "pm.test('error message explains the issue', () => pm.expect(pm.response.json().message).to.include('already registered'));"
+              ]
+            }
+          }]
         },
         {
           "name": "Uppercase dedup \u2192 duplicate=true",
@@ -444,7 +574,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\"email\":\"{{upperEmail}}\"}",
+              "raw": "{\"email\":\"{{upperEmail}}\",\"name\":\"E2E Alice\"}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -553,7 +683,7 @@
           ]
         },
         {
-          "name": "Malformed JSON \u2192 400 (bug: 500)",
+          "name": "Malformed JSON \u2192 400",
           "request": {
             "method": "POST",
             "url": {
@@ -584,9 +714,8 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "// BUG: missing HttpMessageNotReadableException handler \u2014 returns 500 instead of 400",
-                  "pm.test('Malformed JSON rejected (bug: 500, should be 400)', () => pm.expect([400,500]).to.include(pm.response.code));",
-                  "if (pm.response.code === 500) console.warn('BUG #1: malformed JSON returns 500');"
+                  "pm.test('Status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('error message present', () => pm.expect(pm.response.json()).to.have.property('message'));"
                 ]
               }
             }
@@ -1398,7 +1527,7 @@
           ]
         },
         {
-          "name": "Mailpit \u2014 >= 2 emails for runEmail",
+          "name": "Mailpit \u2014 >= 3 emails for runEmail",
           "request": {
             "method": "GET",
             "url": {
@@ -1419,11 +1548,199 @@
                   "const msgs = (pm.response.json().messages || []);",
                   "const runEmail = pm.environment.get('runEmail');",
                   "const matching = msgs.filter(m => (m.To||[]).some(t=>(t.Address||'').toLowerCase()===runEmail.toLowerCase()));",
-                  "pm.test('at least 2 emails for runEmail', () => pm.expect(matching.length).to.be.at.least(2));",
+                  "pm.test('at least 3 emails for runEmail', () => pm.expect(matching.length).to.be.at.least(3));",
                   "const subjects = matching.map(m => m.Subject);",
-                  "pm.test('Welcome email sent', () => pm.expect(subjects.some(s=>s&&(s.includes('Welcome')||s.includes('Waitlist')))).to.be.true);",
-                  "pm.test('Status update sent', () => pm.expect(subjects.some(s=>s&&s.includes('Status'))).to.be.true);",
-                  "console.log('Emails:', subjects);"
+                  "pm.test('Verification email sent on signup', () => pm.expect(subjects.some(s=>s&&/verify/i.test(s))).to.be.true);",
+                  "pm.test('Welcome email sent on verify', () => pm.expect(subjects.some(s=>s&&(s.includes('Welcome')||s.includes('Waitlist')))).to.be.true);",
+                  "pm.test('Status update sent on APPROVED', () => pm.expect(subjects.some(s=>s&&s.includes('Status'))).to.be.true);",
+                  "console.log('Emails for', pm.environment.get('runEmail'), ':', subjects);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "07 Verification edge cases",
+      "item": [
+        {
+          "name": "Verify with invalid token → 400",
+          "request": {
+            "method": "POST",
+            "url": { "raw": "{{baseIngestion}}/api/public/verify?token=invalidtoken123", "host": ["{{baseIngestion}}/api/public/verify"], "query": [{ "key": "token", "value": "invalidtoken123" }] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 for bad token', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Resend for already-verified email → 200 (idempotent)",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseIngestion}}/api/public/resend-verification?email={{runEmail}}",
+              "host": ["{{baseIngestion}}/api/public/resend-verification"],
+              "query": [{ "key": "email", "value": "{{runEmail}}" }]
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                "pm.test('already-verified message', () => pm.expect(pm.response.json().message).to.include('already'));"
+              ]
+            }
+          }]
+        },
+        {
+          "name": "Resend for unknown email → 200 (no enumeration)",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseIngestion}}/api/public/resend-verification?email=unknown-nobody@postman.test",
+              "host": ["{{baseIngestion}}/api/public/resend-verification"],
+              "query": [{ "key": "email", "value": "unknown-nobody@postman.test" }]
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "pm.test('200 OK (avoids email enumeration)', () => pm.response.to.have.status(200));"
+              ]
+            }
+          }]
+        }
+      ]
+    },
+    {
+      "name": "08 Fraud Monitor (Admin)",
+      "item": [
+        {
+          "name": "Get flagged referrers",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseAdmin}}/api/admin/flagged-referrers", "host": ["{{baseAdmin}}/api/admin/flagged-referrers"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('returns array', () => pm.expect(pm.response.json()).to.be.an('array'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get audit log (no filter)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseAdmin}}/api/admin/audit-log", "host": ["{{baseAdmin}}/api/admin/audit-log"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('returns array', () => pm.expect(pm.response.json()).to.be.an('array'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get audit log (filter by referrer email — Alice earned points)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{baseAdmin}}/api/admin/audit-log?email={{runEmail}}",
+              "host": ["{{baseAdmin}}/api/admin/audit-log"],
+              "query": [{ "key": "email", "value": "{{runEmail}}" }]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('returns array', () => pm.expect(pm.response.json()).to.be.an('array'));",
+                  "const events = pm.response.json().map(e => e.eventType);",
+                  "pm.test('POINTS_AWARDED logged for referrer', () => pm.expect(events).to.include('POINTS_AWARDED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Blacklist referrer (Alice — reverses points)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{baseAdmin}}/api/admin/referrers/{{runEmail}}/blacklist",
+              "host": ["{{baseAdmin}}/api/admin/referrers/{{runEmail}}/blacklist"]
+            },
+            "body": { "mode": "raw", "raw": "{\"reason\":\"E2E test blacklist\"}" }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Whitelist referrer (Alice — restores access)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{baseAdmin}}/api/admin/referrers/{{runEmail}}/whitelist",
+              "host": ["{{baseAdmin}}/api/admin/referrers/{{runEmail}}/whitelist"]
+            },
+            "body": { "mode": "raw", "raw": "{\"reason\":\"E2E test whitelist — false positive cleared\"}" }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
                 ]
               }
             }

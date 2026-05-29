@@ -141,6 +141,19 @@ services:
       # Set JWT_SECRET in your shell or a .env file before running compose.
       JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me-in-production-32b}
 
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "8080:80"
+    depends_on:
+      ingestion-service:
+        condition: service_started
+      admin-service:
+        condition: service_started
+    restart: on-failure
+
   notification-service:
     build:
       context: .

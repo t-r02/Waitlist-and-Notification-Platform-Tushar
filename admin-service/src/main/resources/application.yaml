@@ -43,6 +43,8 @@ app:
   jwt:
     secret: ${JWT_SECRET:dev-secret-change-me-must-be-at-least-32-bytes-long-for-hs256}
     expiry-minutes: 1440
+  ingestion:
+    base-url: ${INGESTION_BASE_URL:http://ingestion-service:8081}
   kafka:
     error-handler:
       initial-interval-ms: 1000

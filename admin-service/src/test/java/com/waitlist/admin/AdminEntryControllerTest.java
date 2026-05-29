@@ -3,7 +3,6 @@ package com.waitlist.admin;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.waitlist.admin.entity.Status;
 import com.waitlist.admin.entity.WaitlistEntry;
-import com.waitlist.admin.messaging.producer.StatusChangedProducer;
 import com.waitlist.admin.repository.WaitlistEntryRepository;
 import com.waitlist.admin.security.JwtService;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,9 +32,6 @@ class AdminEntryControllerTest {
     @Autowired ObjectMapper             objectMapper;
     @Autowired JwtService               jwtService;
     @Autowired WaitlistEntryRepository  entryRepo;
-
-    // Kafka producer not needed in tests — prevents broker connection attempts
-    @MockBean StatusChangedProducer statusChangedProducer;
 
     String token;
 

@@ -35,35 +35,54 @@ class LeaderboardServiceTest {
 
     @BeforeEach
     void setUp() {
-        // No shared stubs here — Mockito strict mode treats any unused stub as
-        // an error. Each test configures only what it needs.
         service = new LeaderboardService(redis, pointsRepo, leaderboardMapper);
     }
 
-    // ── helpers ───────────────────────────────────────────────────────────────
-
-    /** Stub redis.opsForZSet() in tests that reach the Redis code path. */
     private void stubZSetOps() {
         when(redis.opsForZSet()).thenReturn(zSetOps);
     }
 
-    // ── syncPoints ────────────────────────────────────────────────────────────
+    // ── syncPoints — positive delta ────────────────────────────────────────────
 
     @Test
-    void syncPoints_zadd_allTime_and_zincrby_weekly() {
+    void syncPoints_positiveTotal_zaddAllTimeAndZincrbyWeekly() {
         stubZSetOps();
+        // incrementScore returning a positive score means no ZREM on weekly
+        when(zSetOps.incrementScore(anyString(), anyString(), anyDouble())).thenReturn(10.0);
 
         service.syncPoints("alice@example.com", 20, 10);
 
-        // All-time: absolute score ZADD
         verify(zSetOps).add(LeaderboardService.KEY_ALL, "alice@example.com", 20.0);
-
-        // Weekly: signed increment
         String weekKey = LeaderboardService.currentWeekKey();
         verify(zSetOps).incrementScore(weekKey, "alice@example.com", 10.0);
-
-        // TTL refreshed on every write
         verify(redis).expire(weekKey, LeaderboardService.WEEKLY_TTL_DAYS, TimeUnit.DAYS);
+        verify(zSetOps, never()).remove(weekKey, "alice@example.com");
+    }
+
+    // ── syncPoints — zero total removes member ────────────────────────────────
+
+    @Test
+    void syncPoints_zeroTotal_removesFromAllTimeLeaderboard() {
+        stubZSetOps();
+        when(zSetOps.incrementScore(anyString(), anyString(), anyDouble())).thenReturn(0.0);
+
+        service.syncPoints("alice@example.com", 0, -10);
+
+        // Score hit zero — remove instead of ZADD
+        verify(zSetOps).remove(LeaderboardService.KEY_ALL, "alice@example.com");
+        verify(zSetOps, never()).add(eq(LeaderboardService.KEY_ALL), anyString(), anyDouble());
+    }
+
+    @Test
+    void syncPoints_negativeWeeklyScore_removesFromWeeklyKey() {
+        stubZSetOps();
+        String weekKey = LeaderboardService.currentWeekKey();
+        // Weekly score went negative (reversal on a previously-zero member)
+        when(zSetOps.incrementScore(eq(weekKey), anyString(), anyDouble())).thenReturn(-5.0);
+
+        service.syncPoints("alice@example.com", 10, -10);
+
+        verify(zSetOps).remove(weekKey, "alice@example.com");
     }
 
     @Test
@@ -72,8 +91,29 @@ class LeaderboardServiceTest {
         when(zSetOps.add(anyString(), anyString(), anyDouble()))
                 .thenThrow(new RuntimeException("Redis down"));
 
-        // Must not throw — Redis failure must not roll back a committed DB write
+        // Must not throw — Redis failure must never roll back a committed DB write
         service.syncPoints("alice@example.com", 20, 10);
+    }
+
+    // ── getLeaderboard — zero-score entries filtered ───────────────────────────
+
+    @Test
+    void getLeaderboard_zeroScoreEntries_areExcluded() {
+        stubZSetOps();
+        when(zSetOps.reverseRangeWithScores(LeaderboardService.KEY_ALL, 0, 9))
+                .thenReturn(Set.of(
+                        ZSetOperations.TypedTuple.of("alice@example.com",  30.0),
+                        ZSetOperations.TypedTuple.of("stale@example.com",   0.0)));
+
+        var rp = new ReferralPoints();
+        rp.setEmail("alice@example.com");
+        rp.addPoints(30);
+        when(pointsRepo.findAllByEmailIn(anyList())).thenReturn(List.of(rp));
+
+        List<LeaderboardEntry> entries = service.getLeaderboard("all");
+
+        assertThat(entries).hasSize(1);
+        assertThat(entries.get(0).email()).isEqualTo("alice@example.com");
     }
 
     // ── getLeaderboard — Redis hot ────────────────────────────────────────────
@@ -122,7 +162,6 @@ class LeaderboardServiceTest {
         rp.setEmail("bob@example.com");
         rp.addPoints(10);
         when(pointsRepo.findLeaderboard(any(Pageable.class))).thenReturn(List.of(rp));
-        // Mapper is used on the DB fallback path — stub it to return the expected DTO
         when(leaderboardMapper.toDto(rp)).thenReturn(new LeaderboardEntry("bob@example.com", 10, null));
 
         List<LeaderboardEntry> entries = service.getLeaderboard("all");
@@ -138,16 +177,14 @@ class LeaderboardServiceTest {
         when(zSetOps.reverseRangeWithScores(LeaderboardService.currentWeekKey(), 0, 9))
                 .thenReturn(null);
 
-        // Weekly cannot be rebuilt from DB — returns empty rather than a DB fallback
         assertThat(service.getLeaderboard("week")).isEmpty();
         verify(pointsRepo, never()).findLeaderboard(any());
     }
 
-    // ── bad window — throws before touching Redis ─────────────────────────────
+    // ── bad window ─────────────────────────────────────────────────────────────
 
     @Test
     void getLeaderboard_unknownWindow_throwsIllegalArgument() {
-        // No Redis stub needed — the exception fires before opsForZSet() is called
         assertThatThrownBy(() -> service.getLeaderboard("monthly"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("monthly");
@@ -156,8 +193,9 @@ class LeaderboardServiceTest {
     // ── reconcile ─────────────────────────────────────────────────────────────
 
     @Test
-    void reconcile_writesUnflaggedNonZeroRowsToRedis() {
+    void reconcile_writesUnflaggedNonZeroRowsAndPrunesZeroScoreMembers() {
         stubZSetOps();
+        when(zSetOps.removeRangeByScore(anyString(), anyDouble(), anyDouble())).thenReturn(0L);
 
         var good = new ReferralPoints();
         good.setEmail("good@example.com");
@@ -169,7 +207,7 @@ class LeaderboardServiceTest {
         flagged.setFlagged(true);
 
         var zeroPts = new ReferralPoints();
-        zeroPts.setEmail("zero@example.com"); // points = 0, excluded
+        zeroPts.setEmail("zero@example.com");
 
         when(pointsRepo.findAll()).thenReturn(List.of(good, flagged, zeroPts));
 
@@ -178,5 +216,8 @@ class LeaderboardServiceTest {
         verify(zSetOps).add(LeaderboardService.KEY_ALL, "good@example.com", 20.0);
         verify(zSetOps, never()).add(anyString(), eq("bad@example.com"),  anyDouble());
         verify(zSetOps, never()).add(anyString(), eq("zero@example.com"), anyDouble());
+        // Stale zero-score members are swept out after the ZADD pass
+        verify(zSetOps).removeRangeByScore(eq(LeaderboardService.KEY_ALL),
+                eq(Double.NEGATIVE_INFINITY), eq(0.0));
     }
 }

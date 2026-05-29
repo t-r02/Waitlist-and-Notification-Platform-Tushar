@@ -4,6 +4,7 @@ import com.waitlist.ingestion.entity.ReferralFingerprint;
 import com.waitlist.ingestion.entity.ReferralPoints;
 import com.waitlist.ingestion.entity.WaitlistEntry;
 import com.waitlist.ingestion.repository.ReferralFingerprintRepository;
+import com.waitlist.ingestion.repository.ReferralFraudAuditRepository;
 import com.waitlist.ingestion.repository.ReferralPointsRepository;
 import com.waitlist.ingestion.repository.ReferralRepository;
 import com.waitlist.ingestion.repository.WaitlistEntryRepository;
@@ -28,26 +29,29 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class ReferralServiceTest {
 
-    @Mock WaitlistEntryRepository entryRepo;
-    @Mock ReferralRepository referralRepo;
-    @Mock ReferralPointsRepository pointsRepo;
-    @Mock ReferralFingerprintRepository fingerprintRepo;
-    @Mock LeaderboardService leaderboardService;
+    @Mock WaitlistEntryRepository        entryRepo;
+    @Mock ReferralRepository             referralRepo;
+    @Mock ReferralPointsRepository       pointsRepo;
+    @Mock ReferralFingerprintRepository  fingerprintRepo;
+    @Mock LeaderboardService             leaderboardService;
+    @Mock ReferralFraudAuditRepository   fraudAuditRepo;
 
     ReferralService service;
 
     @BeforeEach
     void setUp() {
         service = new ReferralService(referralRepo, pointsRepo, entryRepo, fingerprintRepo,
-                leaderboardService);
+                leaderboardService, fraudAuditRepo);
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
+    /** Creates a verified referrer — unverified users cannot generate referrals. */
     private WaitlistEntry entry(String email, String code) {
         var e = new WaitlistEntry();
         e.setEmail(email);
         e.setReferralCode(code);
+        e.setVerified(true);
         return e;
     }
 
@@ -56,12 +60,25 @@ class ReferralServiceTest {
                 .thenReturn(Optional.of(referrer));
     }
 
+    // ── unverified referrer ───────────────────────────────────────────────────
+
+    @Test
+    void unverifiedReferrer_referralIsRejected() {
+        var unverified = new WaitlistEntry();
+        unverified.setEmail("unverified@example.com");
+        unverified.setReferralCode("unvcode1");
+        unverified.setVerified(false);
+        when(entryRepo.findByReferralCode("unvcode1")).thenReturn(Optional.of(unverified));
+
+        service.trackReferral("unvcode1", "someone@example.com");
+
+        verify(referralRepo, never()).saveAndFlush(any());
+    }
+
     // ── self-referral ─────────────────────────────────────────────────────────
 
     @Test
     void selfReferral_isRejectedAndNothingIsPersisted() {
-        // The referee existence check was removed (BUG #3 fix); only the referrer
-        // lookup (by code) happens inside trackReferral now.
         var person = entry("alice@example.com", "aliccode");
         stubReferrer(person);
 
@@ -91,7 +108,6 @@ class ReferralServiceTest {
         when(referralRepo.saveAndFlush(any()))
                 .thenThrow(new DataIntegrityViolationException("duplicate key value violates unique constraint"));
 
-        // DataIntegrityViolationException propagates — the caller (SignupPersistenceService) catches it
         assertThatThrownBy(() -> service.trackReferral("bobscode", "carol@example.com"))
                 .isInstanceOf(DataIntegrityViolationException.class);
 
@@ -103,22 +119,18 @@ class ReferralServiceTest {
 
     @Test
     void legitimateReferral_createsReferralRowAndDoesNotAwardPoints() {
-        // Points are awarded by StatusChangedConsumer on APPROVED, not here.
         var referrer = entry("dave@example.com", "davecode");
         stubReferrer(referrer);
 
-        // No existing fingerprint (count will be 1 — below the flag threshold of 5)
         when(fingerprintRepo.findByReferrerEmailAndIpHash(eq("dave@example.com"), any()))
                 .thenReturn(Optional.empty());
 
         service.trackReferral("davecode", "eve@example.com");
 
-        // Referral row created with correct referrer and referee emails
         verify(referralRepo).saveAndFlush(argThat(r ->
                 "dave@example.com".equals(r.getReferrerEmail()) &&
                 "eve@example.com".equals(r.getRefereeEmail())));
 
-        // Points repo must NOT be touched — points come later via APPROVED event
         verify(pointsRepo, never()).save(any());
         verify(pointsRepo, never()).findByEmail(any());
     }
@@ -133,33 +145,27 @@ class ReferralServiceTest {
 
         service.trackReferral("davecode", "eve@example.com");
 
-        // A new fingerprint row is saved
         verify(fingerprintRepo).save(argThat(fp ->
                 "dave@example.com".equals(fp.getReferrerEmail()) && fp.getCount() == 1));
     }
 
     /**
-     * Regression test for BUG #3: the old code began with
-     * {@code if (entryRepo.findByEmail(refereeEmail).isEmpty()) return;} which always
-     * exited early because the REQUIRES_NEW inner transaction cannot see the
-     * still-uncommitted referee row from the outer signup transaction.  After the fix,
-     * trackReferral goes straight to the referrer lookup and inserts the referral row.
+     * Regression guard: trackReferral must NOT query the referee by email before
+     * inserting the referral row. The method runs in REQUIRES_NEW which cannot see the
+     * still-uncommitted referee row from the outer signup transaction, so any such
+     * query would always return empty and silently skip every legitimate referral.
      */
     @Test
-    void bug3Regression_trackReferral_doesNotQueryRefereeAndCreatesRow() {
-        // Arrange: valid referrer, some referee email (not yet committed in outer tx)
+    void trackReferral_doesNotQueryRefereeBeforeInsert() {
         var referrer = entry("alice@example.com", "aliccode");
         stubReferrer(referrer);
         when(fingerprintRepo.findByReferrerEmailAndIpHash(eq("alice@example.com"), any()))
                 .thenReturn(Optional.empty());
 
-        // Act
         service.trackReferral("aliccode", "bob@example.com");
 
-        // Assert: entryRepo.findByEmail was NEVER called (the removed guard)
         verify(entryRepo, never()).findByEmail(any());
 
-        // And the referral row WAS created
         verify(referralRepo).saveAndFlush(argThat(r ->
                 "alice@example.com".equals(r.getReferrerEmail()) &&
                 "bob@example.com".equals(r.getRefereeEmail())));
@@ -174,8 +180,8 @@ class ReferralServiceTest {
 
         var fp = new ReferralFingerprint();
         fp.setReferrerEmail("spammer@example.com");
-        fp.setIpHash("unknown"); // test context — no real request
-        fp.setCount(5);         // already at the limit; next referral tips it over
+        fp.setIpHash("unknown");
+        fp.setCount(5);
         fp.setWindowStart(java.time.OffsetDateTime.now().minusMinutes(10));
 
         when(fingerprintRepo.findByReferrerEmailAndIpHash("spammer@example.com", "unknown"))
@@ -184,12 +190,33 @@ class ReferralServiceTest {
 
         service.trackReferral("spamcode", "victim@example.com");
 
-        // Fingerprint count incremented to 6 and saved
         verify(fingerprintRepo).save(argThat(f -> f.getCount() == 6));
 
-        // Referrer flagged
         verify(pointsRepo).save(argThat(rp ->
                 "spammer@example.com".equals(rp.getEmail()) && rp.isFlagged()));
+    }
+
+    // ── awardPoints — event type ──────────────────────────────────────────────
+
+    @Test
+    void awardPoints_positiveDelta_logsPOINTS_AWARDED() {
+        when(pointsRepo.findByEmail("alice@example.com")).thenReturn(Optional.empty());
+
+        service.awardPoints("alice@example.com", 10);
+
+        verify(fraudAuditRepo).save(argThat(a -> "POINTS_AWARDED".equals(a.getEventType())));
+    }
+
+    @Test
+    void awardPoints_negativeDelta_logsPOINTS_DEDUCTED() {
+        var rp = new ReferralPoints();
+        rp.setEmail("alice@example.com");
+        rp.addPoints(10);
+        when(pointsRepo.findByEmail("alice@example.com")).thenReturn(Optional.of(rp));
+
+        service.awardPoints("alice@example.com", -10);
+
+        verify(fraudAuditRepo).save(argThat(a -> "POINTS_DEDUCTED".equals(a.getEventType())));
     }
 
     // ── hash helper ───────────────────────────────────────────────────────────

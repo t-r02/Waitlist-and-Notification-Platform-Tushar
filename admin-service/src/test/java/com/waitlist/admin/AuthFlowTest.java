@@ -1,7 +1,6 @@
 package com.waitlist.admin;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.waitlist.admin.messaging.producer.StatusChangedProducer;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -25,9 +24,6 @@ class AuthFlowTest {
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
-
-    // Kafka producer not needed in tests — mock it to avoid broker connection attempts
-    @MockBean StatusChangedProducer statusChangedProducer;
 
     @Test
     void loginThenGetEntries_returns200() throws Exception {

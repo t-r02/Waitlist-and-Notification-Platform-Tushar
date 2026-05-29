@@ -4,6 +4,7 @@ import com.waitlist.ingestion.entity.ReferralFingerprint;
 import com.waitlist.ingestion.entity.ReferralPoints;
 import com.waitlist.ingestion.entity.WaitlistEntry;
 import com.waitlist.ingestion.repository.ReferralFingerprintRepository;
+import com.waitlist.ingestion.repository.ReferralFraudAuditRepository;
 import com.waitlist.ingestion.repository.ReferralPointsRepository;
 import com.waitlist.ingestion.repository.ReferralRepository;
 import com.waitlist.ingestion.repository.WaitlistEntryRepository;
@@ -36,19 +37,22 @@ class ReferralServiceFingerprintTest {
     @Mock ReferralPointsRepository       pointsRepo;
     @Mock ReferralFingerprintRepository  fingerprintRepo;
     @Mock LeaderboardService             leaderboardService;
+    @Mock ReferralFraudAuditRepository   fraudAuditRepo;
 
     ReferralService service;
 
     @BeforeEach
     void setUp() {
         service = new ReferralService(referralRepo, pointsRepo, entryRepo, fingerprintRepo,
-                leaderboardService);
+                leaderboardService, fraudAuditRepo);
     }
 
+    /** Creates a verified referrer — unverified users cannot generate referrals. */
     private WaitlistEntry entry(String email, String code) {
         var e = new WaitlistEntry();
         e.setEmail(email);
         e.setReferralCode(code);
+        e.setVerified(true);
         return e;
     }
 
@@ -69,9 +73,7 @@ class ReferralServiceFingerprintTest {
 
         service.trackReferral("ref00001", "referee@example.com");
 
-        // count goes from 3 to 4 — still under 5 threshold
         verify(fingerprintRepo).save(argThat(f -> f.getCount() == 4));
-        // Referrer must NOT be flagged
         verify(pointsRepo, never()).save(any());
     }
 
@@ -82,20 +84,17 @@ class ReferralServiceFingerprintTest {
         var referrer = entry("oldspam@example.com", "spamcode");
         when(entryRepo.findByReferralCode("spamcode")).thenReturn(Optional.of(referrer));
 
-        // Fingerprint exists but its window started 25 hours ago (expired)
         var fp = new ReferralFingerprint();
         fp.setReferrerEmail("oldspam@example.com");
         fp.setIpHash("unknown");
-        fp.setCount(5); // would flag if still in window
+        fp.setCount(5);
         fp.setWindowStart(OffsetDateTime.now().minusHours(25));
         when(fingerprintRepo.findByReferrerEmailAndIpHash("oldspam@example.com", "unknown"))
                 .thenReturn(Optional.of(fp));
 
         service.trackReferral("spamcode", "victim@example.com");
 
-        // Count must be reset to 1 (new window)
         verify(fingerprintRepo).save(argThat(f -> f.getCount() == 1));
-        // No flagging — count (1) does not exceed threshold (5)
         verify(pointsRepo, never()).save(any());
     }
 
@@ -106,7 +105,6 @@ class ReferralServiceFingerprintTest {
         var referrer = entry("flagged@example.com", "flagcode");
         when(entryRepo.findByReferralCode("flagcode")).thenReturn(Optional.of(referrer));
 
-        // Fingerprint already over threshold
         var fp = new ReferralFingerprint();
         fp.setReferrerEmail("flagged@example.com");
         fp.setIpHash("unknown");
@@ -115,7 +113,6 @@ class ReferralServiceFingerprintTest {
         when(fingerprintRepo.findByReferrerEmailAndIpHash("flagged@example.com", "unknown"))
                 .thenReturn(Optional.of(fp));
 
-        // Referrer is already flagged
         var rp = new ReferralPoints();
         rp.setEmail("flagged@example.com");
         rp.setFlagged(true);
@@ -137,12 +134,11 @@ class ReferralServiceFingerprintTest {
 
         verify(pointsRepo).save(argThat(rp ->
                 "newbie@example.com".equals(rp.getEmail()) && rp.getPoints() == 10));
-        // Outside transaction → sync is immediate
         verify(leaderboardService).syncPoints("newbie@example.com", 10, 10);
     }
 
     @Test
-    void awardPoints_negativeDelatReverts_syncsWithNegativeDelta() {
+    void awardPoints_negativeDeltaReverts_syncsWithNegativeDelta() {
         var rp = new ReferralPoints();
         rp.setEmail("reverter@example.com");
         rp.addPoints(10);
@@ -152,5 +148,23 @@ class ReferralServiceFingerprintTest {
 
         verify(pointsRepo).save(argThat(p -> p.getPoints() == 0));
         verify(leaderboardService).syncPoints("reverter@example.com", 0, -10);
+    }
+
+    @Test
+    void awardPoints_flaggedReferrer_pointsRejected() {
+        var rp = new ReferralPoints();
+        rp.setEmail("flagged@example.com");
+        rp.setFlagged(true);
+        rp.setReferrerStatus("FLAGGED");
+        rp.addPoints(20);
+        when(pointsRepo.findByEmail("flagged@example.com")).thenReturn(Optional.of(rp));
+
+        service.awardPoints("flagged@example.com", 10);
+
+        // Points must NOT be saved or synced
+        verify(pointsRepo, never()).save(any());
+        verify(leaderboardService, never()).syncPoints(any(), anyInt(), anyInt());
+        // Audit log must be written
+        verify(fraudAuditRepo).save(argThat(a -> "POINTS_REJECTED".equals(a.getEventType())));
     }
 }

@@ -33,9 +33,13 @@ class SignupServiceTest {
     }
 
     private SignupRequest request(String email) {
+        return request(email, "Test User");
+    }
+
+    private SignupRequest request(String email, String name) {
         var req = new SignupRequest();
         req.setEmail(email);
-        req.setName("Test User");
+        req.setName(name);
         return req;
     }
 
@@ -43,7 +47,7 @@ class SignupServiceTest {
     void signup_normalizesEmailToLowerCaseTrimmed() {
         var req = request("  ALICE@Example.COM  ");
         when(persistence.doInsert(any(), eq("alice@example.com")))
-                .thenReturn(new SignupResponse("Successfully registered", "ref12345", false));
+                .thenReturn(new SignupResponse("Please verify your email", null, false, false));
 
         service.signup(req);
 
@@ -52,7 +56,7 @@ class SignupServiceTest {
 
     @Test
     void signup_success_returnsPersistenceResponse() {
-        var expected = new SignupResponse("Successfully registered", "abc12345", false);
+        var expected = new SignupResponse("Please verify your email", null, false, false);
         when(persistence.doInsert(any(), any())).thenReturn(expected);
 
         SignupResponse result = service.signup(request("bob@example.com"));
@@ -62,14 +66,15 @@ class SignupServiceTest {
     }
 
     @Test
-    void signup_dataIntegrityViolation_readsExistingEntryAndReturnsDuplicate() {
-        // Race condition: persistence throws because of unique constraint violation
+    void signup_dataIntegrityViolation_sameName_returnsDuplicateWithCode() {
         when(persistence.doInsert(any(), eq("carol@example.com")))
                 .thenThrow(new DataIntegrityViolationException("duplicate key"));
 
         var existing = new WaitlistEntry();
         existing.setEmail("carol@example.com");
+        existing.setName("Test User");
         existing.setReferralCode("existref1");
+        existing.setVerified(true);
         when(repository.findByEmail("carol@example.com")).thenReturn(Optional.of(existing));
 
         SignupResponse result = service.signup(request("CAROL@example.com"));
@@ -80,13 +85,48 @@ class SignupServiceTest {
     }
 
     @Test
+    void signup_dataIntegrityViolation_differentName_throwsIllegalArgument() {
+        // Wrong name on a verified account is rejected — caller gets an error, not a success card.
+        when(persistence.doInsert(any(), eq("carol@example.com")))
+                .thenThrow(new DataIntegrityViolationException("duplicate key"));
+
+        var existing = new WaitlistEntry();
+        existing.setEmail("carol@example.com");
+        existing.setName("Test User");
+        existing.setReferralCode("existref1");
+        existing.setVerified(true);
+        when(repository.findByEmail("carol@example.com")).thenReturn(Optional.of(existing));
+
+        assertThatThrownBy(() -> service.signup(request("carol@example.com", "Wrong Name")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("already registered");
+    }
+
+    @Test
+    void signup_dataIntegrityViolation_unverifiedEntry_returnsNullReferralCode() {
+        when(persistence.doInsert(any(), eq("dave@example.com")))
+                .thenThrow(new DataIntegrityViolationException("duplicate key"));
+
+        var existing = new WaitlistEntry();
+        existing.setEmail("dave@example.com");
+        existing.setName("Test User");
+        existing.setReferralCode("hiddenref");
+        existing.setVerified(false);
+        when(repository.findByEmail("dave@example.com")).thenReturn(Optional.of(existing));
+
+        SignupResponse result = service.signup(request("dave@example.com"));
+
+        assertThat(result.isDuplicate()).isTrue();
+        assertThat(result.getReferralCode()).isNull();
+    }
+
+    @Test
     void signup_dataIntegrityViolation_whenEntryStillNotFound_rethrows() {
-        // Extremely rare: unique violation but we still can't find the row
         when(persistence.doInsert(any(), any()))
                 .thenThrow(new DataIntegrityViolationException("duplicate key"));
-        when(repository.findByEmail("dave@example.com")).thenReturn(Optional.empty());
+        when(repository.findByEmail("eve@example.com")).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.signup(request("dave@example.com")))
+        assertThatThrownBy(() -> service.signup(request("eve@example.com")))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 }

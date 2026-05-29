@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.waitlist.ingestion.dto.response.LeaderboardEntry;
 import com.waitlist.ingestion.dto.response.SignupResponse;
+import com.waitlist.ingestion.entity.WaitlistEntry;
+import com.waitlist.ingestion.repository.WaitlistEntryRepository;
 import com.waitlist.ingestion.service.LeaderboardService;
 import com.waitlist.ingestion.service.SignupService;
 import io.github.bucket4j.Bucket;
@@ -19,6 +21,8 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
 import java.util.Map;
+
+import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -37,21 +41,20 @@ class SignupControllerTest {
     @Autowired MockMvc     mockMvc;
     @Autowired ObjectMapper objectMapper;
 
-    @MockBean SignupService     signupService;
-    @MockBean LeaderboardService leaderboardService;
-    @MockBean Bucket             globalRateLimitBucket;
+    @MockBean SignupService           signupService;
+    @MockBean LeaderboardService      leaderboardService;
+    @MockBean WaitlistEntryRepository entryRepository;
+    @MockBean Bucket                  globalRateLimitBucket;
     @SuppressWarnings("rawtypes")
     @MockBean LoadingCache       perIpBuckets;
 
     @BeforeEach
     @SuppressWarnings("unchecked")
     void allowAllRequests() {
-        // Stub global bucket to allow every request
         ConsumptionProbe globalProbe = mock(ConsumptionProbe.class);
         when(globalProbe.isConsumed()).thenReturn(true);
         when(globalRateLimitBucket.tryConsumeAndReturnRemaining(1)).thenReturn(globalProbe);
 
-        // Stub per-IP bucket to allow every request
         Bucket ipBucket = mock(Bucket.class);
         ConsumptionProbe ipProbe = mock(ConsumptionProbe.class);
         when(ipProbe.isConsumed()).thenReturn(true);
@@ -65,14 +68,15 @@ class SignupControllerTest {
     void signup_validRequest_returns200WithResponse() throws Exception {
         var body = Map.of("email", "alice@example.com", "name", "Alice");
         when(signupService.signup(any()))
-                .thenReturn(new SignupResponse("Successfully registered", "abc12345", false));
+                .thenReturn(new SignupResponse("Please verify your email to complete registration",
+                        null, false, false));
 
         mockMvc.perform(post("/api/public/signup")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(body)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.message").value("Successfully registered"))
-                .andExpect(jsonPath("$.duplicate").value(false));
+                .andExpect(jsonPath("$.duplicate").value(false))
+                .andExpect(jsonPath("$.verified").value(false));
     }
 
     @Test
@@ -111,15 +115,30 @@ class SignupControllerTest {
 
     @Test
     void signup_duplicateEmail_returns200WithDuplicateFlag() throws Exception {
-        var body = Map.of("email", "dup@example.com");
+        var body = Map.of("email", "dup@example.com", "name", "Dup");
         when(signupService.signup(any()))
-                .thenReturn(new SignupResponse("Already registered", "existref", true));
+                .thenReturn(new SignupResponse("Already registered", "existref", true, true));
 
         mockMvc.perform(post("/api/public/signup")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(body)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.duplicate").value(true));
+    }
+
+    @Test
+    void signup_nameMismatchOnVerifiedEmail_returns400() throws Exception {
+        var body = Map.of("email", "alice@example.com", "name", "Wrong Name");
+        when(signupService.signup(any()))
+                .thenThrow(new IllegalArgumentException(
+                        "This email is already registered. Please use the name you originally signed up with."));
+
+        mockMvc.perform(post("/api/public/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.message").isString());
     }
 
     // ── GET /api/public/leaderboard ───────────────────────────────────────────
@@ -153,5 +172,43 @@ class SignupControllerTest {
         mockMvc.perform(get("/api/public/leaderboard").param("window", "monthly"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400));
+    }
+
+    // ── GET /api/public/profile ───────────────────────────────────────────────
+
+    @Test
+    void profile_verifiedEmail_returnsReferralCode() throws Exception {
+        var entry = new WaitlistEntry();
+        entry.setEmail("alice@example.com");
+        entry.setReferralCode("abc12345");
+        entry.setVerified(true);
+        when(entryRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(entry));
+
+        mockMvc.perform(get("/api/public/profile").param("email", "alice@example.com"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.referralCode").value("abc12345"))
+                .andExpect(jsonPath("$.verified").value(true));
+    }
+
+    @Test
+    void profile_unverifiedEmail_returnsNullReferralCode() throws Exception {
+        var entry = new WaitlistEntry();
+        entry.setEmail("bob@example.com");
+        entry.setReferralCode("shouldbehidden");
+        entry.setVerified(false);
+        when(entryRepository.findByEmail("bob@example.com")).thenReturn(Optional.of(entry));
+
+        mockMvc.perform(get("/api/public/profile").param("email", "bob@example.com"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.referralCode").doesNotExist())
+                .andExpect(jsonPath("$.verified").value(false));
+    }
+
+    @Test
+    void profile_unknownEmail_returns404() throws Exception {
+        when(entryRepository.findByEmail("nobody@example.com")).thenReturn(Optional.empty());
+
+        mockMvc.perform(get("/api/public/profile").param("email", "nobody@example.com"))
+                .andExpect(status().isNotFound());
     }
 }

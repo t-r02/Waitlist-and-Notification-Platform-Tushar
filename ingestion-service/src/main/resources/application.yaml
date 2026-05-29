@@ -40,6 +40,23 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       timeout: 500ms          # command timeout — Redis failures surface quickly
+  mail:
+    host: ${MAIL_HOST:mailpit}
+    port: ${MAIL_PORT:1025}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: false
+          starttls:
+            enable: false
+
+app:
+  email:
+    from: ${FROM_EMAIL:noreply@waitlist.local}
+    verification:
+      base-url: ${VERIFICATION_BASE_URL:http://localhost:8080/verify}
 
 server:
   port: 8081
@@ -52,3 +69,6 @@ management:
   endpoint:
     health:
       show-details: never
+  health:
+    mail:
+      enabled: false   # mail connectivity is validated via Mailpit, not the actuator

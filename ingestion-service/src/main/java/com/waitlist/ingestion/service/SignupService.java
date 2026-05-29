@@ -27,7 +27,24 @@ public class SignupService {
             return persistence.doInsert(req, normalized);
         } catch (DataIntegrityViolationException e) {
             return repository.findByEmail(normalized)
-                    .map(entry -> new SignupResponse("Already registered", entry.getReferralCode(), true))
+                    .map(entry -> {
+                        if (entry.isVerified() && entry.getName() != null) {
+                            String stored   = entry.getName().trim().toLowerCase();
+                            String incoming = req.getName() != null ? req.getName().trim().toLowerCase() : "";
+                            if (!stored.equals(incoming)) {
+                                throw new IllegalArgumentException(
+                                        "This email is already registered. " +
+                                        "Please use the name you originally signed up with.");
+                            }
+                        }
+                        return new SignupResponse(
+                                entry.isVerified()
+                                        ? "Already registered"
+                                        : "Already registered — please verify your email to unlock your referral code",
+                                entry.isVerified() ? entry.getReferralCode() : null,
+                                true,
+                                entry.isVerified());
+                    })
                     .orElseThrow(() -> e);
         }
     }

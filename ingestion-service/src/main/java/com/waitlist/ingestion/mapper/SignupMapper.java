@@ -23,12 +23,15 @@ import org.mapstruct.Mapping;
 @Mapper(componentModel = "spring")
 public interface SignupMapper {
 
-    @Mapping(target = "id",           ignore = true)
-    @Mapping(target = "email",        ignore = true)
-    @Mapping(target = "referralCode", ignore = true)
-    @Mapping(target = "referredBy",   source = "referralCode")
-    @Mapping(target = "createdAt",    ignore = true)
-    @Mapping(target = "updatedAt",    ignore = true)
-    @Mapping(target = "version",      ignore = true)
+    @Mapping(target = "id",                          ignore = true)
+    @Mapping(target = "email",                       ignore = true)
+    @Mapping(target = "referralCode",                ignore = true)
+    @Mapping(target = "referredBy",                  source = "referralCode")
+    @Mapping(target = "verified",                    ignore = true)
+    @Mapping(target = "verificationToken",           ignore = true)
+    @Mapping(target = "verificationTokenExpiresAt",  ignore = true)
+    @Mapping(target = "createdAt",                   ignore = true)
+    @Mapping(target = "updatedAt",                   ignore = true)
+    @Mapping(target = "version",                     ignore = true)
     WaitlistEntry toEntity(SignupRequest request);
 }

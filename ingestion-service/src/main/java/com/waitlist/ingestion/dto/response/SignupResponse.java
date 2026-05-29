@@ -7,6 +7,8 @@ import lombok.Data;
 @AllArgsConstructor
 public class SignupResponse {
     private String message;
+    /** Null for newly registered unverified users — revealed after email verification. */
     private String referralCode;
     private boolean duplicate;
+    private boolean verified;
 }

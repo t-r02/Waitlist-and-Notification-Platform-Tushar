@@ -18,11 +18,9 @@ import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
-/**
- * Covers weekly-leaderboard and utility methods not tested in {@link LeaderboardServiceTest}.
- */
 @ExtendWith(MockitoExtension.class)
 class LeaderboardServiceWeeklyTest {
 
@@ -51,7 +49,6 @@ class LeaderboardServiceWeeklyTest {
         int year = today.get(IsoFields.WEEK_BASED_YEAR);
         int week = today.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR);
         String expected = "leaderboard:week:%d-%02d".formatted(year, week);
-
         assertThat(key).isEqualTo(expected);
     }
 
@@ -72,7 +69,6 @@ class LeaderboardServiceWeeklyTest {
         List<LeaderboardEntry> entries = service.getLeaderboard("week");
 
         assertThat(entries).hasSize(1);
-        assertThat(entries.get(0).email()).isEqualTo("alice@example.com");
         assertThat(entries.get(0).points()).isEqualTo(20);
     }
 
@@ -90,31 +86,55 @@ class LeaderboardServiceWeeklyTest {
         when(pointsRepo.findAllByEmailIn(List.of("spammer@example.com"))).thenReturn(List.of(rp));
 
         assertThat(service.getLeaderboard("week")).isEmpty();
-        // DB fallback is NOT called for weekly
         verify(pointsRepo, never()).findLeaderboard(any());
     }
 
-    // ── syncPoints with negative delta ────────────────────────────────────────
+    // ── syncPoints reversal — member removed when score hits zero ─────────────
 
     @Test
-    void syncPoints_negativeDelta_zincrbyIsNegative() {
+    void syncPoints_reversalDropsAllTimeToZero_removesFromAllTime() {
         stubZSetOps();
+        String weekKey = LeaderboardService.currentWeekKey();
+        when(zSetOps.incrementScore(eq(weekKey), anyString(), anyDouble())).thenReturn(0.0);
 
+        // All-time total is now 0 — ZREM should replace ZADD
         service.syncPoints("referrer@example.com", 0, -10);
 
-        verify(zSetOps).add(LeaderboardService.KEY_ALL, "referrer@example.com", 0.0);
-        verify(zSetOps).incrementScore(
-                LeaderboardService.currentWeekKey(), "referrer@example.com", -10.0);
+        verify(zSetOps).remove(LeaderboardService.KEY_ALL, "referrer@example.com");
+        verify(zSetOps, never()).add(eq(LeaderboardService.KEY_ALL), anyString(), anyDouble());
+
+        // Weekly score also hit 0 — member removed from weekly key too
+        verify(zSetOps).remove(weekKey, "referrer@example.com");
     }
 
-    // ── reconcile edge cases ──────────────────────────────────────────────────
+    @Test
+    void syncPoints_positiveAllTimeButZeroWeekly_removesOnlyFromWeekly() {
+        stubZSetOps();
+        String weekKey = LeaderboardService.currentWeekKey();
+        // Weekly reversed to zero, but all-time is still positive
+        when(zSetOps.incrementScore(eq(weekKey), anyString(), anyDouble())).thenReturn(0.0);
+
+        service.syncPoints("alice@example.com", 10, -10);
+
+        // All-time: ZADD (score > 0)
+        verify(zSetOps).add(LeaderboardService.KEY_ALL, "alice@example.com", 10.0);
+        // Weekly: ZREM (score hit 0)
+        verify(zSetOps).remove(weekKey, "alice@example.com");
+    }
+
+    // ── reconcile — empty DB still prunes Redis ───────────────────────────────
 
     @Test
-    void reconcile_emptyPointsTable_doesNotTouchRedis() {
+    void reconcile_emptyPointsTable_stillPrunesRedis() {
+        stubZSetOps();
         when(pointsRepo.findAll()).thenReturn(List.of());
+        when(zSetOps.removeRangeByScore(anyString(), anyDouble(), anyDouble())).thenReturn(0L);
 
         service.reconcile();
 
-        verifyNoInteractions(redis);
+        // No ZADD calls (nothing to add), but the prune sweep must still run
+        verify(zSetOps, never()).add(anyString(), anyString(), anyDouble());
+        verify(zSetOps).removeRangeByScore(eq(LeaderboardService.KEY_ALL),
+                eq(Double.NEGATIVE_INFINITY), eq(0.0));
     }
 }

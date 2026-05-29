@@ -2,9 +2,11 @@ package com.waitlist.ingestion.service;
 
 import com.waitlist.ingestion.entity.Referral;
 import com.waitlist.ingestion.entity.ReferralFingerprint;
+import com.waitlist.ingestion.entity.ReferralFraudAudit;
 import com.waitlist.ingestion.entity.ReferralPoints;
 import com.waitlist.ingestion.filter.RateLimitInterceptor;
 import com.waitlist.ingestion.repository.ReferralFingerprintRepository;
+import com.waitlist.ingestion.repository.ReferralFraudAuditRepository;
 import com.waitlist.ingestion.repository.ReferralPointsRepository;
 import com.waitlist.ingestion.repository.ReferralRepository;
 import com.waitlist.ingestion.repository.WaitlistEntryRepository;
@@ -22,6 +24,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.OffsetDateTime;
+import java.util.UUID;
 
 @Slf4j
 @Service
@@ -30,29 +33,34 @@ public class ReferralService {
 
     private static final int MAX_REFERRALS_PER_IP_PER_24H = 5;
 
-    private final ReferralRepository         referralRepo;
-    private final ReferralPointsRepository   pointsRepo;
-    private final WaitlistEntryRepository    entryRepo;
-    private final ReferralFingerprintRepository fingerprintRepo;
-    private final LeaderboardService         leaderboardService;
+    private final ReferralRepository              referralRepo;
+    private final ReferralPointsRepository        pointsRepo;
+    private final WaitlistEntryRepository         entryRepo;
+    private final ReferralFingerprintRepository   fingerprintRepo;
+    private final LeaderboardService              leaderboardService;
+    private final ReferralFraudAuditRepository    fraudAuditRepo;
 
     /**
      * REQUIRES_NEW: independent of the caller's signup transaction so that a
      * duplicate-referee constraint fires inside this inner transaction and the
      * outer signup transaction can still commit.
+     *
+     * <p>Referrals are only tracked when the <em>referrer</em> has verified their
+     * email address — unverified users cannot generate referrals.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void trackReferral(String referralCode, String refereeEmail) {
-        // Note: we do NOT check entryRepo.findByEmail(refereeEmail) here.
-        // trackReferral is called from within the outer signup transaction, after
-        // repository.save(entry) but before that transaction commits.  The REQUIRES_NEW
-        // inner transaction cannot see the uncommitted referee row, so that guard would
-        // always return early and silently drop every referral.  The referee is, by
-        // definition, the entry that was just created; we know it exists.
         var referrerOpt = entryRepo.findByReferralCode(referralCode);
         if (referrerOpt.isEmpty()) return;
 
         var referrer = referrerOpt.get();
+
+        // Only verified users may generate referrals
+        if (!referrer.isVerified()) {
+            log.info("Referral rejected — referrer not verified [code={}, referee={}]",
+                    referralCode, refereeEmail);
+            return;
+        }
 
         if (referrer.getEmail().equalsIgnoreCase(refereeEmail)) {
             log.warn("Self-referral rejected [email={}]", refereeEmail);
@@ -66,8 +74,11 @@ public class ReferralService {
         // REQUIRES_NEW transaction, not at outer-transaction commit time.
         referralRepo.saveAndFlush(ref);
 
+        // Audit: record the referral creation
+        logAuditEvent("REFERRAL_CREATED", referrer.getEmail(), refereeEmail,
+                null, null, null, null, null, UUID.randomUUID());
+
         // Fingerprint fraud check — runs after a successful referral insert.
-        // Points are awarded later by StatusChangedConsumer on APPROVED.
         String ipHash = currentIpHash();
         updateFingerprint(referrer.getEmail(), ipHash);
     }
@@ -77,6 +88,8 @@ public class ReferralService {
      * the new score to the Redis leaderboard sorted sets.
      *
      * <p>{@code delta} is signed: positive for an award, negative for a reversal.
+     * If the referrer is flagged or blacklisted the award is silently rejected
+     * and logged to the fraud audit table.
      */
     @Transactional
     public void awardPoints(String email, int delta) {
@@ -85,10 +98,23 @@ public class ReferralService {
             newRp.setEmail(email);
             return newRp;
         });
+
+        // Enforce state machine: blocked referrers do not earn points
+        if (rp.isEffectivelyBlocked()) {
+            log.warn("Points award rejected — referrer blocked [email={}, status={}]",
+                    email, rp.getReferrerStatus());
+            logAuditEvent("POINTS_REJECTED", email, null, null, delta, rp.getPoints(),
+                    "Referrer status: " + rp.getReferrerStatus(), null, UUID.randomUUID());
+            return;
+        }
+
         rp.addPoints(delta);
         pointsRepo.save(rp);
 
         int newTotal = rp.getPoints();
+        String eventType = delta >= 0 ? "POINTS_AWARDED" : "POINTS_DEDUCTED";
+        logAuditEvent(eventType, email, null, null, delta, newTotal,
+                null, null, UUID.randomUUID());
 
         // Sync Redis only after the DB transaction commits so a rollback
         // cannot leave Redis ahead of the DB.
@@ -100,7 +126,6 @@ public class ReferralService {
                 }
             });
         } else {
-            // Outside an active transaction (e.g. unit tests) — sync immediately.
             leaderboardService.syncPoints(email, newTotal, delta);
         }
     }
@@ -123,7 +148,6 @@ public class ReferralService {
             fp = new ReferralFingerprint();
             fp.setReferrerEmail(referrerEmail);
             fp.setIpHash(ipHash);
-            // count and windowStart default to 1 / now() in the entity
         }
         fingerprintRepo.save(fp);
 
@@ -140,17 +164,35 @@ public class ReferralService {
         });
         if (!rp.isFlagged()) {
             rp.setFlagged(true);
+            rp.setReferrerStatus("FLAGGED");
             pointsRepo.save(rp);
+            logAuditEvent("FLAGGED", referrerEmail, null, ipHash, null, rp.getPoints(),
+                    null, null, UUID.randomUUID());
             log.warn("Referrer flagged for suspicious activity [referrerEmail={}, ipHash={}]",
                     referrerEmail, ipHash);
         }
     }
 
-    /**
-     * Reads the client IP from the current servlet request and returns a
-     * truncated SHA-256 hex digest.  Returns {@code "unknown"} outside a web
-     * context (async workers, tests).
-     */
+    // ── Audit logging ────────────────────────────────────────────────────────
+
+    private void logAuditEvent(String eventType, String referrerEmail, String refereeEmail,
+                               String ipHash, Integer delta, Integer totalPoints,
+                               String reason, String adminUser, UUID idempotencyKey) {
+        var audit = new ReferralFraudAudit();
+        audit.setEventType(eventType);
+        audit.setReferrerEmail(referrerEmail);
+        audit.setRefereeEmail(refereeEmail);
+        audit.setIpHash(ipHash);
+        audit.setDelta(delta);
+        audit.setTotalPoints(totalPoints);
+        audit.setReason(reason);
+        audit.setAdminUser(adminUser);
+        audit.setIdempotencyKey(idempotencyKey);
+        fraudAuditRepo.save(audit);
+    }
+
+    // ── IP hash helpers ──────────────────────────────────────────────────────
+
     static String currentIpHash() {
         try {
             var attrs = (ServletRequestAttributes) RequestContextHolder.currentRequestAttributes();

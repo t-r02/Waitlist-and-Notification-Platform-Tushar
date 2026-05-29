@@ -13,6 +13,7 @@ public class SignupRequest {
     @Email(message = "email must be a valid address")
     private String email;
 
+    @NotBlank(message = "name is required")
     @Size(max = 120, message = "name must be 120 characters or fewer")
     private String name;
 
